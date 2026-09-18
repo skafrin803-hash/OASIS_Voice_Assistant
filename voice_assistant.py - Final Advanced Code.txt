@@ -1,0 +1,157 @@
+import speech_recognition as sr
+import pyttsx3
+import datetime
+import webbrowser
+import smtplib
+import time
+import threading
+import json
+import requests
+import wikipedia
+
+# --- CONFIG ---
+# Get free API key from openweathermap.org
+WEATHER_API_KEY = "YOUR_OPENWEATHER_API_KEY_HERE"
+EMAIL_ADDRESS = "your_dummy_email@gmail.com"
+EMAIL_PASSWORD = "your_app_password" # Use App Password, not real password
+
+engine = pyttsx3.init()
+engine.setProperty('rate', 170)
+
+def speak(text):
+    print(f"Assistant: {text}")
+    engine.say(text)
+    engine.runAndWait()
+
+def listen():
+    r = sr.Recognizer()
+    with sr.Microphone() as source:
+        print("\nListening...")
+        r.adjust_for_ambient_noise(source, duration=0.5)
+        audio = r.listen(source)
+    try:
+        query = r.recognize_google(audio, language='en-in')
+        print(f"You: {query}")
+        return query.lower()
+    except:
+        speak("Sorry, I didn't get that. Please say again.")
+        return None
+
+def send_email(to_email, content):
+    try:
+        server = smtplib.SMTP('smtp.gmail.com', 587)
+        server.ehlo()
+        server.starttls()
+        server.login(EMAIL_ADDRESS, EMAIL_PASSWORD)
+        server.sendmail(EMAIL_ADDRESS, to_email, content)
+        server.close()
+        speak(f"Email sent to {to_email}")
+    except Exception as e:
+        print(e)
+        speak("Sorry, I could not send the email. Check your email credentials.")
+
+def set_reminder(duration_sec, message):
+    def reminder_task():
+        time.sleep(duration_sec)
+        speak(f"Reminder Alert! {message}")
+    threading.Thread(target=reminder_task).start()
+    speak(f"Reminder set for {duration_sec} seconds from now.")
+
+def get_weather(city):
+    if WEATHER_API_KEY == "YOUR_OPENWEATHER_API_KEY_HERE":
+        speak("Please add your OpenWeatherMap API key in the code first.")
+        return
+    url = f"https://api.openweathermap.org/data/2.5/weather?q={city}&appid={WEATHER_API_KEY}&units=metric"
+    try:
+        res = requests.get(url).json()
+        if res["cod"]!= 200:
+            speak(f"City {city} not found.")
+            return
+        temp = res["main"]["temp"]
+        desc = res["weather"][0]["description"]
+        speak(f"Currently in {city}, it is {temp} degrees with {desc}")
+    except:
+        speak("Could not fetch weather data.")
+
+def answer_question(query):
+    try:
+        result = wikipedia.summary(query, sentences=2)
+        speak(result)
+    except:
+        speak("I couldn't find an answer. I will search it on web for you.")
+        webbrowser.open(f"https://www.google.com/search?q={query}")
+
+# Load custom commands
+with open("config.json", "r") as f:
+    config = json.load(f)
+
+# --- MAIN LOOP ---
+if __name__ == "__main__":
+    speak("Hello! I am your advanced voice assistant. How can I help you?")
+    while True:
+        command = listen()
+        if not command:
+            continue
+
+        # Intent parsing - not just keyword matching
+        if "hello" in command or "hi" in command:
+            speak("Hello there! How can I assist you today?")
+
+        elif "time" in command or "date" in command:
+            now = datetime.datetime.now()
+            speak(f"It is {now.strftime('%I:%M %p')} on {now.strftime('%d %B %Y')}")
+
+        elif "weather" in command:
+            speak("Which city?")
+            city = listen()
+            if city:
+                get_weather(city)
+
+        elif "email" in command or "mail" in command:
+            speak("Who should I send email to?")
+            to = listen()
+            # Simple mapping - you can add your contacts
+            speak("What should be the content?")
+            content = listen()
+            if to and content:
+                # Replace with actual email mapping
+                send_email("test_receiver@gmail.com", content)
+
+        elif "remind" in command or "reminder" in command:
+            speak("After how many seconds should I remind you?")
+            try:
+                sec_text = listen()
+                seconds = int(''.join(filter(str.isdigit, sec_text)))
+                speak("What should I remind you about?")
+                msg = listen()
+                set_reminder(seconds, msg)
+            except:
+                speak("Please say seconds in numbers, like 10")
+
+        elif "search" in command:
+            topic = command.replace("search", "").strip()
+            speak(f"Searching for {topic}")
+            webbrowser.open(f"https://www.google.com/search?q={topic}")
+
+        elif "what is" in command or "who is" in command or "tell me about" in command:
+            answer_question(command)
+
+        elif command in config["custom_commands"]:
+            webbrowser.open(config["custom_commands"][command])
+            speak(f"Opening {command}")
+
+        elif "exit" in command or "bye" in command or "stop" in command:
+            speak("Goodbye! Have a great day.")
+            break
+
+        else:
+            # Try custom commands or search
+            found = False
+            for key in config["custom_commands"]:
+                if key in command:
+                    webbrowser.open(config["custom_commands"][key])
+                    found = True
+                    break
+            if not found:
+                speak("I can search that for you.")
+                webbrowser.open(f"https://www.google.com/search?q={command}")
